@@ -1,0 +1,256 @@
+"""
+SkyHub Project - Complete Structure & Responsibilities
+
+FOLDER STRUCTURE:
+=================
+
+SkyHub/
+│
+├─ server/                           # FastAPI backend
+│  ├─ __init__.py
+│  ├─ main.py                        # Entry point: FastAPI app + lifespan
+│  │
+│  ├─ core/                          # Server configuration
+│  │  ├─ __init__.py
+│  │  └─ config.py                   # ServerSettings (pydantic)
+│  │
+│  ├─ api/                           # HTTP routes (thin layer)
+│  │  ├─ __init__.py
+│  │  └─ routes.py                   # POST /api/captures (delegates to service)
+│  │
+│  ├─ services/                      # Business logic
+│  │  ├─ __init__.py
+│  │  ├─ storage_service.py          # File I/O: saves captures to disk
+│  │  └─ capture_service.py          # Orchestration: coordinates storage + metadata
+│  │
+│  ├─ models/                        # Pydantic schemas
+│  │  ├─ __init__.py
+│  │  └─ capture.py                  # CaptureUploadRequest, CaptureUploadResponse
+│  │
+│  ├─ repositories/                  # Data access (DB placeholder)
+│  │  ├─ __init__.py
+│  │  └─ capture_repository.py       # In-memory for now, SQLite later
+│  │
+│  └─ storage/                       # Runtime directories (created at startup)
+│     ├─ captures/                   # Saved image files
+│     ├─ derived/                    # Processed images (future)
+│     └─ db/                         # Database files (future)
+│
+├─ node/                             # Camera capture client
+│  ├─ __init__.py
+│  ├─ run.py                         # Entry point: orchestrates capture loop
+│  │
+│  ├─ core/                          # Node configuration
+│  │  ├─ __init__.py
+│  │  └─ config.py                   # NodeSettings (pydantic)
+│  │
+│  ├─ cameras/                       # Camera implementations
+│  │  ├─ __init__.py
+│  │  ├─ base.py                     # Camera ABC interface
+│  │  ├─ mock_camera.py              # MockCamera (fake images)
+│  │  ├─ zwo_camera.py               # (Stub: real ZWO driver)
+│  │  ├─ rpi_camera.py               # (Stub: Raspberry Pi camera)
+│  │  └─ gige_camera.py              # (Stub: GigE camera)
+│  │
+│  ├─ capture/                       # Capture operations
+│  │  ├─ __init__.py
+│  │  ├─ models.py                   # CaptureResult (dataclass)
+│  │  └─ capture_service.py          # Orchestration: capture loop + upload
+│  │
+│  └─ network/                       # Network operations
+│     ├─ __init__.py
+│     └─ server_client.py            # HTTP client: POSTs captures to server
+│
+├─ app/                              # Legacy (existing FastAPI)
+│  ├─ __init__.py
+│  ├─ main.py                        # Old code (can deprecate)
+│  └─ core/
+│     ├─ __init__.py
+│     └─ config.py
+│
+├─ ARCHITECTURE.md                   # Detailed design doc + example
+├─ ARCHITECTURE_SUMMARY.md           # Quick reference
+├─ requirements.txt
+└─ README.md
+
+
+FILE RESPONSIBILITIES:
+====================
+
+server/core/config.py
+  - ServerSettings class with pydantic_settings
+  - Fields: app_name, debug, storage_root
+  - Loaded from .env.server or defaults
+
+server/api/routes.py
+  - init_routes(capture_service) → APIRouter
+  - POST /api/captures handler (thin, delegates to service)
+  - Responsibility: request parsing, response formatting only
+
+server/services/storage_service.py
+  - StorageService class
+  - save_capture(image_bytes, node_id, camera_id) → dict
+  - Responsibility: write files to disk, generate unique names
+
+server/services/capture_service.py
+  - CaptureService class
+  - store_capture(...) → CaptureUploadResponse
+  - Responsibility: orchestrate storage + metadata
+
+server/models/capture.py
+  - CaptureUploadRequest: request schema
+  - CaptureUploadResponse: response schema
+  - Responsibility: type validation, serialization
+
+server/repositories/capture_repository.py
+  - CaptureRepository class
+  - save_metadata(dict), get_by_node(node_id)
+  - Responsibility: abstract data access (in-memory now, DB later)
+
+server/main.py
+  - FastAPI app setup + lifespan
+  - Service initialization at startup
+  - Route registration
+
+node/run.py
+  - Entry point for node
+  - Creates MockCamera, ServerClient, CaptureService
+  - Starts capture_loop()
+
+node/core/config.py
+  - NodeSettings class with pydantic_settings
+  - Fields: node_id, camera_id, server_url, capture_interval
+  - Loaded from .env.node or defaults
+
+node/cameras/base.py
+  - Camera ABC interface
+  - Methods: connect(), disconnect(), capture_image(), get_info()
+  - Responsibility: define contract for camera implementations
+
+node/cameras/mock_camera.py
+  - MockCamera class (extends Camera)
+  - Generates fake image bytes
+  - Responsibility: test captures without real hardware
+
+node/cameras/zwo_camera.py
+  - (Stub file, ready to implement)
+  - Would use ZWO SDK
+  - Responsibility: control real ZWO cameras
+
+node/capture/models.py
+  - CaptureResult dataclass
+  - Fields: node_id, camera_id, timestamp, image_bytes, exposure, gain
+  - Responsibility: type-safe capture data
+
+node/capture/capture_service.py
+  - CaptureService class
+  - capture_and_upload() → bool
+  - capture_loop(interval_seconds)
+  - Responsibility: orchestrate camera + upload
+
+node/network/server_client.py
+  - ServerClient class
+  - upload_capture(capture) → dict
+  - Responsibility: HTTP multipart POST to server
+
+
+DATA FLOW EXAMPLE:
+=================
+
+Minimal capture cycle:
+
+  [Node]
+    MockCamera.capture_image()
+        ↓
+    CaptureResult(
+      node_id="node-1",
+      camera_id="camera-1",
+      timestamp=datetime.utcnow(),
+      image_bytes=<256KB fake data>,
+      exposure=10.0,
+      gain=50
+    )
+        ↓
+    ServerClient.upload_capture(capture)
+        ↓
+    HTTP POST http://localhost:8000/api/captures
+    - multipart/form-data
+    - file: image bytes
+    - node_id, camera_id, timestamp, exposure, gain
+
+  [Server]
+    @app.post("/api/captures")
+    async def upload_capture(file, node_id, camera_id, timestamp, exposure, gain)
+        ↓
+    CaptureService.store_capture(...)
+        ↓
+    StorageService.save_capture(image_bytes, node_id, camera_id)
+      - filename: "node-1_camera-1_<uuid>.raw"
+      - path: "./storage/captures/node-1_camera-1_<uuid>.raw"
+      - size_bytes: 262144
+        ↓
+    CaptureRepository.save_metadata({...})
+      - Stores in memory (or DB later)
+        ↓
+    CaptureUploadResponse(
+      node_id="node-1",
+      camera_id="camera-1",
+      filename="...",
+      path="...",
+      size_bytes=262144,
+      timestamp="..."
+    ) → JSON response
+
+
+PRINCIPLES:
+===========
+
+✓ Separation of concerns:
+  - Node = camera access + upload
+  - Server = storage + metadata
+
+✓ Interface-based design:
+  - Camera is abstract, easy to add drivers
+
+✓ Service pattern:
+  - Routes are thin (just parse/serialize)
+  - Services handle logic
+  - Repositories abstract data access
+
+✓ Type safety:
+  - Pydantic for validation
+  - Dataclasses for structured data
+  - Type hints throughout
+
+✓ Configuration:
+  - Pydantic-settings for env-based config
+  - .env.node and .env.server for local overrides
+  - Defaults sensible
+
+✓ Extensibility:
+  - Add real cameras by subclassing Camera
+  - Add processing by extending CaptureService
+  - Add DB by implementing CaptureRepository
+
+✓ Simplicity:
+  - No Redis, no plugins, no Docker orchestration (yet)
+  - ~500 lines of actual code
+  - Beginner-friendly
+
+
+TESTING / USAGE:
+===============
+
+Server (Terminal 1):
+  $ uvicorn server.main:app --reload
+  → Running on http://localhost:8000
+
+Node (Terminal 2):
+  $ python -m node.run
+  → Captures every 10 seconds
+  → POSTs to http://localhost:8000/api/captures
+
+Check it worked:
+  $ ls -la storage/captures/
+  → Should see files like: node-1_camera-1_<uuid>.raw
+"""
