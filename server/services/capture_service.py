@@ -19,8 +19,12 @@ class CaptureService:
         node_id: str,
         camera_id: str,
         timestamp: datetime,
-        exposure: float,
-        gain: float,
+        exposure: float = None,
+        gain: float = None,
+        resolution: str = None,
+        frame_rate: int = None,
+        white_balance: str = None,
+        iso: int = None,
     ) -> CaptureUploadResponse:
         """
         Store capture file and metadata.
@@ -30,8 +34,12 @@ class CaptureService:
             node_id: Source node
             camera_id: Source camera
             timestamp: Capture timestamp
-            exposure: Exposure setting
-            gain: Gain setting
+            exposure: Exposure setting (seconds)
+            gain: Gain setting (%)
+            resolution: Resolution (e.g., "1920x1080")
+            frame_rate: Frames per second
+            white_balance: White balance mode
+            iso: ISO sensitivity
             
         Returns:
             CaptureUploadResponse with saved file info
@@ -44,7 +52,7 @@ class CaptureService:
             timestamp=timestamp,
         )
         
-        # Save metadata to database
+        # Save metadata to database (with camera settings)
         self.repository.create_capture(
             uuid=file_info["uuid"],
             node_id=node_id,
@@ -54,6 +62,12 @@ class CaptureService:
             period=file_info["period"],
             file_path=file_info["path"],
             size_bytes=file_info["size_bytes"],
+            exposure=exposure,
+            gain=gain,
+            resolution=resolution,
+            frame_rate=frame_rate,
+            white_balance=white_balance,
+            iso=iso,
         )
         
         return CaptureUploadResponse(

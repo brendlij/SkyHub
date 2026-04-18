@@ -22,6 +22,12 @@ class CaptureRepository:
         period: str,
         file_path: str,
         size_bytes: int,
+        exposure: float = None,
+        gain: float = None,
+        resolution: str = None,
+        frame_rate: int = None,
+        white_balance: str = None,
+        iso: int = None,
     ) -> CaptureModel:
         """Create and save a new capture record."""
         capture = CaptureModel(
@@ -33,6 +39,12 @@ class CaptureRepository:
             period=period,
             file_path=file_path,
             size_bytes=size_bytes,
+            exposure=exposure,
+            gain=gain,
+            resolution=resolution,
+            frame_rate=frame_rate,
+            white_balance=white_balance,
+            iso=iso,
         )
         self.db.add(capture)
         self.db.commit()
@@ -84,3 +96,88 @@ class CaptureRepository:
         return self.db.query(CaptureModel).filter(
             CaptureModel.date_folder == date_folder
         ).count()
+    
+    def get_stats_by_date(self) -> dict:
+        """Get statistics grouped by date."""
+        from sqlalchemy import func
+        
+        results = self.db.query(
+            CaptureModel.date_folder,
+            CaptureModel.period,
+            func.count(CaptureModel.id).label('count'),
+            func.sum(CaptureModel.size_bytes).label('total_size'),
+        ).group_by(CaptureModel.date_folder, CaptureModel.period).all()
+        
+        stats = {}
+        for date_folder, period, count, total_size in results:
+            if date_folder not in stats:
+                stats[date_folder] = {'day': {}, 'night': {}}
+            stats[date_folder][period] = {
+                'count': count or 0,
+                'total_size_bytes': total_size or 0,
+            }
+        
+        return stats
+    
+    def get_stats_by_node(self) -> dict:
+        """Get statistics grouped by node."""
+        from sqlalchemy import func
+        
+        results = self.db.query(
+            CaptureModel.node_id,
+            CaptureModel.camera_id,
+            func.count(CaptureModel.id).label('count'),
+            func.sum(CaptureModel.size_bytes).label('total_size'),
+        ).group_by(CaptureModel.node_id, CaptureModel.camera_id).all()
+        
+        stats = {}
+        for node_id, camera_id, count, total_size in results:
+            if node_id not in stats:
+                stats[node_id] = {'cameras': {}, 'count': 0, 'total_size': 0}
+            stats[node_id]['cameras'][camera_id] = {
+                'count': count or 0,
+                'total_size_bytes': total_size or 0,
+            }
+            stats[node_id]['count'] += count or 0
+            stats[node_id]['total_size'] += total_size or 0
+        
+        return stats
+    
+    def get_total_size_bytes(self) -> int:
+        """Get total size of all captures."""
+        from sqlalchemy import func
+        
+        result = self.db.query(func.sum(CaptureModel.size_bytes)).scalar()
+        return result or 0
+    
+    def get_period_counts(self) -> dict:
+        """Get count of captures by period (day/night)."""
+        from sqlalchemy import func
+        
+        results = self.db.query(
+            CaptureModel.period,
+            func.count(CaptureModel.id).label('count'),
+        ).group_by(CaptureModel.period).all()
+        
+        stats = {}
+        for period, count in results:
+            stats[period] = count or 0
+        
+        return stats
+    
+    def get_unique_dates(self) -> list[str]:
+        """Get list of all unique dates."""
+        dates = self.db.query(CaptureModel.date_folder).distinct().order_by(
+            CaptureModel.date_folder.desc()
+        ).all()
+        return [d[0] for d in dates]
+    
+    def get_unique_nodes(self) -> list[str]:
+        """Get list of all unique node IDs."""
+        nodes = self.db.query(CaptureModel.node_id).distinct().all()
+        return [n[0] for n in nodes]
+    
+    def get_unique_cameras(self) -> list[str]:
+        """Get list of all unique camera IDs."""
+        cameras = self.db.query(CaptureModel.camera_id).distinct().all()
+        return [c[0] for c in cameras]

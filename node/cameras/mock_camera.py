@@ -10,10 +10,12 @@ import zlib
 class MockCamera(Camera):
     """Generates fake PNG image data for testing."""
     
-    def __init__(self, camera_id: str, node_id: str, width: int = 100, height: int = 100):
+    def __init__(self, camera_id: str, node_id: str, width: int = 100, height: int = 100, exposure: float = 5.0, gain: float = 100.0):
         super().__init__(camera_id, node_id)
         self.width = width
         self.height = height
+        self.exposure = exposure
+        self.gain = gain
     
     def connect(self) -> None:
         """Mock connection."""
@@ -68,8 +70,8 @@ class MockCamera(Camera):
             camera_id=self.camera_id,
             timestamp=datetime.utcnow(),
             image_bytes=image_bytes,
-            exposure=10.0,
-            gain=50,
+            exposure=self.exposure,
+            gain=self.gain,
         )
     
     def get_info(self) -> dict:
